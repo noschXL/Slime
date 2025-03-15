@@ -13,9 +13,10 @@ var compute_shader_file = load("res://agents.glsl")
 var compute_shader_spirv
 var compute_shader
 
-var blur_buffer: RID
-var agent_buffer: RID 
-var map_buffer: RID
+var image_buffers: Array[RID]
+var agent_buffer: RID
+var map_index := 0
+var blur_index := 1
 
 var size
 var map: PackedByteArray
@@ -51,8 +52,10 @@ func _ready():
 		pos += offset
 		agents.append([pos, angle2])
 		
-	blur_buffer = rd.storage_buffer_create(map.size(), map)
-	map_buffer = rd.storage_buffer_create(map.size(), map)	
+	image_buffers = [
+		rd.storage_buffer_create(map.size(), map),
+		rd.storage_buffer_create(map.size(), map)	
+	]
 	agent_buffer = rd.storage_buffer_create(agents.size() * 3 * 4, agents_to_packed_array())
 
 	texture = ImageTexture.new()
@@ -61,7 +64,7 @@ func _ready():
 func UpdateAgents():
 	var agents_as_packed = agents_to_packed_array()
 	rd.buffer_update(agent_buffer, 0, agents_as_packed.size(), agents_as_packed)
-	rd.buffer_update(map_buffer, 0, map.size(), map)
+	rd.buffer_update(image_buffers[map_index], 0, map.size(), map)
 	# Create uniform
 	var uniform := RDUniform.new()
 	uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
@@ -71,7 +74,7 @@ func UpdateAgents():
 	var map_uniform := RDUniform.new()
 	map_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
 	map_uniform.binding = 1  # Binding index for map buffer
-	map_uniform.add_id(map_buffer)  # Assign the map buffer
+	map_uniform.add_id(image_buffers[map_index])  # Assign the map buffer
 
 	var uniform_set := rd.uniform_set_create([uniform, map_uniform], compute_shader, 0)
 
@@ -88,7 +91,7 @@ func UpdateAgents():
 	rd.compute_list_bind_compute_pipeline(compute_list, pipeline)
 	rd.compute_list_bind_uniform_set(compute_list, uniform_set, 0)
 	rd.compute_list_set_push_constant(compute_list, push_constants, 16)  # 4 floats (4 bytes each)
-	rd.compute_list_dispatch(compute_list, AgentCount / 256 + 1, 1, 1)
+	rd.compute_list_dispatch(compute_list, AgentCount / 256. + 1, 1, 1)
 	rd.compute_list_end()
 
 	rd.submit()
@@ -127,23 +130,29 @@ func agents_from_packed_array(data: PackedByteArray):
 
 func Update():
 	UpdateAgents()
+	
 	for agent in agents:
 		var pos: Vector2 = agent[0]
 		var index = int(floor(pos.y)) * size.x + int(floor(pos.x))
 		pos.clamp(Vector2.ZERO, size)
-			
 		map[clamp(index * 4 + 3, 0, len(map) - 1)] = 255
+		
 	UpdateMap()
 
 # Update the map with the blur effect
 func UpdateMap():
-	rd.buffer_update(blur_buffer, 0, map.size(), map)
+	rd.buffer_update(image_buffers[map_index], 0, map.size(), map)
 	# Create uniform and bind it to the compute shader
-	var uniform := RDUniform.new()
-	uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	uniform.binding = 0 # Matches the binding in shader
-	uniform.add_id(blur_buffer)
-	var uniform_set := rd.uniform_set_create([uniform], blur_shader, 0) # Set 0 as per shader binding
+	var read_uniform := RDUniform.new()
+	read_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	read_uniform.binding = 0 # Matches the binding in shader
+	read_uniform.add_id(image_buffers[map_index])
+	
+	var write_uniform := RDUniform.new()
+	write_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	write_uniform.binding = 1 # Matches the binding in shader
+	write_uniform.add_id(image_buffers[blur_index])
+	var uniform_set := rd.uniform_set_create([read_uniform, write_uniform], blur_shader, 0)
 	
 	# Compute pipeline
 	var pipeline := rd.compute_pipeline_create(blur_shader)
@@ -174,7 +183,7 @@ func UpdateMap():
 	# Submit to GPU and wait for sync
 	rd.submit()
 	rd.sync()
-	map = rd.buffer_get_data(blur_buffer)
+	map = rd.buffer_get_data(image_buffers[blur_index])
 
 # Function to update the texture with the current map
 func update_texture() -> void:
@@ -185,3 +194,5 @@ func update_texture() -> void:
 func _process(_delta: float) -> void:
 	Update()  # Update agents' positions and map
 	update_texture()  # Update the texture with the new map data
+	map_index = map_index ^ 1
+	blur_index = blur_index ^ 1
