@@ -18,3 +18,7 @@ config/icon="res://icon.svg"
 [display]
 
 window/size/mode=3
+
+[dotnet]
+
+project/assembly_name="Slime_and_Mold"
