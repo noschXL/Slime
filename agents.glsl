@@ -8,9 +8,13 @@ layout(set = 0, binding = 0, std430) buffer AgentBuffer {
 	float data[]; // Each agent has (x, y, angle)
 } agent_buffer;
 
-layout(set = 0, binding = 1, std430) buffer MapBuffer {
-	uint map_data[]; // Map data (used for trail detection)
-} map_buffer;
+layout(set = 0, binding = 1, std430) buffer ReadBuffer {
+	uint data[]; //used for trail detection
+} read_buffer;
+
+layout(set = 0, binding = 2, std430) buffer WriteBuffer {
+	uint data[]; //used for setting the agents pos. alpha to max
+} write_buffer;
 
 layout(push_constant) uniform PushConstants {
 	float speed;
@@ -26,7 +30,7 @@ float hash3(float x, float y, float z) {
 
 // Function to get the trail intensity (presence of a trail) from the map
 bool is_trail(uint index) {
-	return map_buffer.map_data[index] >> 24 > 0;
+	return read_buffer.data[index] >> 24 > 0;
 }
 
 // Function to simulate turning towards the target
@@ -109,4 +113,10 @@ void main() {
 	agent_buffer.data[base_idx + 0] = x;
 	agent_buffer.data[base_idx + 1] = y;
 	agent_buffer.data[base_idx + 2] = angle;
+
+	uint write_index = min(uint(x) + uint(y) * push_constants.width, push_constants.width * push_constants.height - 1);
+
+
+	write_buffer.data[write_index] = 0xFFFFFFFF;
+	
 }

@@ -54,13 +54,8 @@ void main() {
 	// Average the Alpha values
 	uint a = sum_a / count;
 	
-	// Modify only the Alpha channel
-	if (a > 5) {
-		a -= 5;
-	} else {
-		a = 0;
-	}
-	
+	a = uint(float(a) * 0.90);
+
 	// Reconstruct the uint from modified RGBA components
 	write_buffer.data[pixel_idx] = (r << 0) | (g << 8) | (b << 16) | (a << 24);
 	

@@ -14,3 +14,7 @@ config/name="Slime_and_Mold"
 run/main_scene="uid://d0loyopx3akm0"
 config/features=PackedStringArray("4.4", "Forward Plus")
 config/icon="res://icon.svg"
+
+[display]
+
+window/size/mode=3
