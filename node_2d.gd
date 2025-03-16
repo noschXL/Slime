@@ -15,8 +15,8 @@ var compute_shader
 
 var image_buffers: Array[RID]
 var agent_buffer: RID
-var map_index := 0
-var blur_index := 1
+var read_index := 0
+var write_index := 1
 
 var size
 var map: PackedByteArray
@@ -47,16 +47,16 @@ func _ready():
 	for i in range(AgentCount):
 		var pos: Vector2 = Vector2(size.x / 2, size.y / 2)
 		var angle: float = randf_range(0, TAU)
-		var angle2: float = randf_range(0, 360)
+		var desiredangle = -angle
 		var offset: Vector2 = Vector2(cos(angle), sin(angle)) * randf_range(1, StartCircleDiameter)
 		pos += offset
-		agents.append([pos, angle2])
+		agents.append([pos, -angle, desiredangle])
 		
 	image_buffers = [
 		rd.storage_buffer_create(map.size(), map),
 		rd.storage_buffer_create(map.size(), map)	
 	]
-	agent_buffer = rd.storage_buffer_create(agents.size() * 3 * 4, agents_to_packed_array())
+	agent_buffer = rd.storage_buffer_create(agents.size() * 4 * 4, agents_to_packed_array())
 
 	texture = ImageTexture.new()
 	update_texture()
@@ -79,19 +79,14 @@ func agents_to_packed_array() -> PackedByteArray:
 		data.append_array(encode_float(agent[0].x))
 		data.append_array(encode_float(agent[0].y))
 		data.append_array(encode_float(agent[1]))
+		data.append_array(encode_float(agent[2]))
 	return data
-
-func agents_from_packed_array(data: PackedByteArray):
-	for i in range(AgentCount):
-		var x = data.decode_float(i * 12)
-		var y = data.decode_float(i * 12 + 4)
-		var angle = data.decode_float(i * 12 + 8)
-		agents[i][0] = Vector2(x, y)
-		agents[i][1] = angle
 
 func Update():
 	UpdateAgents()
 	UpdateBlur()
+	read_index = read_index ^ 1
+	write_index = write_index ^ 1
 
 func UpdateAgents():
 	# Create uniform
@@ -103,12 +98,12 @@ func UpdateAgents():
 	var map_uniform := RDUniform.new()
 	map_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
 	map_uniform.binding = 2  # Binding index for map buffer
-	map_uniform.add_id(image_buffers[map_index])  # Assign the map buffer
+	map_uniform.add_id(image_buffers[read_index])  # Assign the map buffer
 	
 	var blur_uniform := RDUniform.new()
 	blur_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
 	blur_uniform.binding = 1  # Binding index for map buffer
-	blur_uniform.add_id(image_buffers[blur_index])  # Assign the map buffer
+	blur_uniform.add_id(image_buffers[write_index])  # Assign the map buffer
 
 	var uniform_set := rd.uniform_set_create([uniform, map_uniform, blur_uniform], compute_shader, 0)
 
@@ -136,12 +131,12 @@ func UpdateBlur():
 	var read_uniform := RDUniform.new()
 	read_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
 	read_uniform.binding = 0 # Matches the binding in shader
-	read_uniform.add_id(image_buffers[map_index])
+	read_uniform.add_id(image_buffers[read_index])
 	
 	var write_uniform := RDUniform.new()
 	write_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
 	write_uniform.binding = 1 # Matches the binding in shader
-	write_uniform.add_id(image_buffers[blur_index])
+	write_uniform.add_id(image_buffers[write_index])
 	var uniform_set := rd.uniform_set_create([read_uniform, write_uniform], blur_shader, 0)
 	
 	# Compute pipeline
@@ -177,7 +172,7 @@ func UpdateBlur():
 
 # Function to update the texture with the current map
 func update_texture() -> void:
-	map = rd.buffer_get_data(image_buffers[blur_index])
+	map = rd.buffer_get_data(image_buffers[write_index])
 	var img = Image.create_from_data(size.x, size.y, false, Image.FORMAT_RGBA8, map)
 	texture = ImageTexture.create_from_image(img)  # Update the ImageTexture with the new map
 	$Sprite2D.texture = texture  # Update the Sprite's texture
@@ -185,5 +180,4 @@ func update_texture() -> void:
 func _process(_delta: float) -> void:
 	Update()  # Update agents' positions and map
 	update_texture()  # Update the texture with the new map data
-	map_index = map_index ^ 1
-	blur_index = blur_index ^ 1
+	

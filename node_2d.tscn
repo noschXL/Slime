@@ -4,8 +4,7 @@
 
 [node name="Node2D" type="Node2D"]
 script = ExtResource("1_wtcfe")
-speed = 1
-AgentCount = 1000000
+AgentCount = 100000
 
 [node name="Sprite2D" type="Sprite2D" parent="."]
 centered = false

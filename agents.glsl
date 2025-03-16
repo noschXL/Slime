@@ -25,33 +25,30 @@ layout(push_constant) uniform PushConstants {
 
 // Function to generate random float from a seed (simple hash-based method)
 float hash3(float x, float y, float z) {
-    return fract(sin(dot(vec3(x, y, z), vec3(12.9898, 78.233, 45.164))) * 43758.5453);
+    return fract(sin(dot(vec3(x, y, z), vec3(12.9898, 78.233, 45.123))) * 43758.5453);
 }
 
 // Function to get the trail intensity (presence of a trail) from the map
-bool is_trail(uint index) {
-	return read_buffer.data[index] >> 24 > 0;
-}
+int sense(float x, float y, float angle, float dst, int radius) {
+	vec2 sensor;
+	sensor.x = cos(angle) * dst;
+	sensor.y = sin(angle) * dst;
 
-// Function to simulate turning towards the target
-void turnTowards(vec2 currentPos, inout float angle, vec2 targetPos) {
-	vec2 directionToTarget = normalize(targetPos - currentPos);
-	float targetAngle = atan(directionToTarget.y, directionToTarget.x);
-	float turnAmount = (targetAngle - angle);
-	
-	// Normalize the turn to [-pi, pi]
-	if (turnAmount > 3.14159265359) {
-		turnAmount -= 6.28318530718;
-	} else if (turnAmount < -3.14159265359) {
-		turnAmount += 6.28318530718;
+	int sum = 0;
+	for (int offsetX = -radius; offsetX <= radius; offsetX++) {
+		for (int offsetY = -radius; offsetY <= radius; offsetY++) {
+			int pos = int(x + sensor.x) + offsetX + (int(y + sensor.y) + offsetY) * int(push_constants.width);
+
+			if (pos > 0 && pos < push_constants.width * push_constants.height - 1) {
+				sum += int(read_buffer.data[pos] >> 24);
+			}
+		}
 	}
-	
-	// Turn 1/10 of the way toward the target
-	angle += turnAmount * 0.1;  // Adjust this based on your speed
+	return sum;
 }
 
 float randomwandering(float x, float y, float angle) {
-	float randomvalue = hash3(x, y, angle) * sin(hash3(x, y, angle) * 2) * 0.2 - 0.1;
+	float randomvalue = hash3(x, y, angle) * sin(hash3(x, y, angle) * 2) * 5 - 2.5;
 	return randomvalue;
 }
 
@@ -59,30 +56,30 @@ void main() {
 	uint index = gl_GlobalInvocationID.x;
 	if (index >= push_constants.agent_count) return;
 
-	uint base_idx = index * 3;
+	uint base_idx = index * 4;
 	float x = agent_buffer.data[base_idx + 0];
 	float y = agent_buffer.data[base_idx + 1];
 	float angle = agent_buffer.data[base_idx + 2];
+	float desiredangle = agent_buffer.data[base_idx + 3];
+	float pi = 3.14159265359;
 
-	// Sensor checks for trail detection (left, center, right)
-	float sensorDistance = 5.0;  // Distance in front of the agent to check
-	bool leftTrail = is_trail(uint(x - sensorDistance) + push_constants.width * uint(y));
-	bool centerTrail = is_trail(uint(x) + push_constants.width * uint(y + sensorDistance));  // Move along Y axis
-	bool rightTrail = is_trail(uint(x + sensorDistance) + push_constants.width * uint(y));
+	float sensorDistance = 7.0;
+	int sensorRadius = 3;
+	float deg45 = pi / 4;
 
-	// If trail detected on the left, steer left
-	if (leftTrail) {
-		angle -= 0.01;
+	int leftweight = sense(x, y, angle - deg45, sensorDistance, sensorRadius);
+	int middleweight = sense(x, y, angle, sensorDistance, sensorRadius);
+	int rightweight = sense(x, y, angle + deg45, sensorDistance, sensorRadius);
+
+	if (leftweight > middleweight && leftweight > rightweight) {
+		desiredangle -= (angle - (desiredangle - deg45)) * 0.2;
+	}else if (rightweight > middleweight && rightweight > leftweight) {
+		desiredangle -= (angle - (desiredangle + deg45)) * 0.2;
+	}else {
+		desiredangle -= (angle - desiredangle) * 0.2;
 	}
-	// If trail detected in the center, move forward
-	else if (centerTrail) {
-		// Do nothing for now (move straight)
-	}
-	// If trail detected on the right, steer right
-	else if (rightTrail) {
-		angle += 0.01;
-	}
-	angle += randomwandering(x, y, angle); 
+
+	angle += (desiredangle - angle) * 0.7;
 
 	// Compute movement
 	float dx = cos(angle) * push_constants.speed;
@@ -93,19 +90,19 @@ void main() {
 
 	// Boundary handling with randomized bounce angle
 	if (x < 0) {
-		angle += 3.14159265359 + (hash3(x, y, angle) - 0.5) * 3.14159265359;
+		angle += pi + (hash3(x, y, angle) - 0.5) * pi;
 		x = 1;
 	}
 	if (x > push_constants.width) {
-		angle += 3.14159265359 + (hash3(x, y, angle) - 0.5) * 3.14159265359;
+		angle += pi + (hash3(x, y, angle) - 0.5) * pi;
 		x = push_constants.width - 1;
 	}
 	if (y < 0) {
-		angle += 3.14159265359 + (hash3(x, y, angle) - 0.5) * 3.14159265359;
+		angle += pi + (hash3(x, y, angle) - 0.5) * pi;
 		y = 1;
 	}
 	if (y > push_constants.height) {
-		angle += 3.14159265359 + (hash3(x, y, angle) - 0.5) * 3.14159265359;
+		angle += pi + (hash3(x, y, angle) - 0.5) * pi;
 		y = push_constants.height - 1;
 	}
 
@@ -113,6 +110,7 @@ void main() {
 	agent_buffer.data[base_idx + 0] = x;
 	agent_buffer.data[base_idx + 1] = y;
 	agent_buffer.data[base_idx + 2] = angle;
+	agent_buffer.data[base_idx + 3] = desiredangle;
 
 	uint write_index = min(uint(x) + uint(y) * push_constants.width, push_constants.width * push_constants.height - 1);
 
