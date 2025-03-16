@@ -18,9 +18,18 @@ layout(set = 0, binding = 2, std430) buffer WriteBuffer {
 
 layout(push_constant) uniform PushConstants {
 	float speed;
-	uint agent_count;
-	uint width;
-	uint height;
+	float steeringStrenght;
+
+	float followDesire;
+	float maxRandomRadiant;
+
+	int agent_count;
+
+	int sensorDst;
+	int sensorRadius;
+
+	int width;
+	int height;
 } push_constants;
 
 // Function to generate random float from a seed (simple hash-based method)
@@ -48,7 +57,7 @@ int sense(float x, float y, float angle, float dst, int radius) {
 }
 
 float randomwandering(float x, float y, float angle) {
-	float randomvalue = hash3(x, y, angle) * sin(hash3(x, y, angle) * 2) * 5 - 2.5;
+	float randomvalue = (hash3(x, y, angle) - 0.5) * push_constants.maxRandomRadiant;
 	return randomvalue;
 }
 
@@ -61,25 +70,23 @@ void main() {
 	float y = agent_buffer.data[base_idx + 1];
 	float angle = agent_buffer.data[base_idx + 2];
 	float desiredangle = agent_buffer.data[base_idx + 3];
-	float pi = 3.14159265359;
 
-	float sensorDistance = 7.0;
-	int sensorRadius = 3;
+	float pi = 3.14159265359;
 	float deg45 = pi / 4;
 
-	int leftweight = sense(x, y, angle - deg45, sensorDistance, sensorRadius);
-	int middleweight = sense(x, y, angle, sensorDistance, sensorRadius);
-	int rightweight = sense(x, y, angle + deg45, sensorDistance, sensorRadius);
+	int leftweight = sense(x, y, angle - deg45, push_constants.sensorDst, push_constants.sensorRadius);
+	int middleweight = sense(x, y, angle, push_constants.sensorDst, push_constants.sensorRadius);
+	int rightweight = sense(x, y, angle + deg45, push_constants.sensorDst, push_constants.sensorRadius);
 
 	if (leftweight > middleweight && leftweight > rightweight) {
-		desiredangle -= (angle - (desiredangle - deg45)) * 0.2;
+		desiredangle -= (angle - (desiredangle - deg45)) * push_constants.followDesire;
 	}else if (rightweight > middleweight && rightweight > leftweight) {
-		desiredangle -= (angle - (desiredangle + deg45)) * 0.2;
+		desiredangle -= (angle - (desiredangle + deg45)) * push_constants.followDesire;
 	}else {
-		desiredangle -= (angle - desiredangle) * 0.2;
+		desiredangle -= (angle - desiredangle) * push_constants.followDesire;
 	}
 
-	angle += (desiredangle - angle) * 0.7;
+	angle += (desiredangle - angle) * push_constants.steeringStrenght;
 
 	// Compute movement
 	float dx = cos(angle) * push_constants.speed;
@@ -113,7 +120,6 @@ void main() {
 	agent_buffer.data[base_idx + 3] = desiredangle;
 
 	uint write_index = min(uint(x) + uint(y) * push_constants.width, push_constants.width * push_constants.height - 1);
-
 
 	write_buffer.data[write_index] = 0xFFFFFFFF;
 	

@@ -1,7 +1,16 @@
 extends Node2D
 
 @export var speed = 2
+@export var steeringStrenght := 0.7
+
+@export var followDesire := 0.2
+@export var maxRandomRadiant := TAU #if > TAU
+
 @export var AgentCount = 1000
+
+@export var sensorDst = 7
+@export var sensorRadius = 3
+
 @export var StartCircleDiameter = 20
 
 var blur_shader_file := load("res://blur.glsl")
@@ -67,11 +76,12 @@ func encode_float(value: float) -> PackedByteArray:
 	data.encode_float(0, value)
 	return data
 
-func encode_uint(value: int) -> PackedByteArray:
+func encode_int(value: int) -> PackedByteArray:
 	var data = PackedByteArray()
 	data.resize(4)
-	data.encode_u32(0, value)
+	data.encode_s32(0, value)
 	return data
+
 
 func agents_to_packed_array() -> PackedByteArray:
 	var data = PackedByteArray()
@@ -110,16 +120,27 @@ func UpdateAgents():
 	# Push constants
 	var push_constants = PackedByteArray()
 	push_constants.append_array(encode_float(speed))
-	push_constants.append_array(encode_uint(AgentCount))
-	push_constants.append_array(encode_uint(size.x))
-	push_constants.append_array(encode_uint(size.y))
+	push_constants.append_array(encode_float(steeringStrenght))
+	
+	push_constants.append_array(encode_float(followDesire))
+	push_constants.append_array(encode_float(maxRandomRadiant))
+	
+	push_constants.append_array(encode_int(AgentCount))
+	
+	push_constants.append_array(encode_int(sensorDst))
+	push_constants.append_array(encode_int(sensorRadius))
+	
+	push_constants.append_array(encode_int(size.x))
+	push_constants.append_array(encode_int(size.y))
+
+	push_constants.resize(48)
 
 	# Execute compute shader
 	var pipeline := rd.compute_pipeline_create(compute_shader)
 	var compute_list := rd.compute_list_begin()
 	rd.compute_list_bind_compute_pipeline(compute_list, pipeline)
 	rd.compute_list_bind_uniform_set(compute_list, uniform_set, 0)
-	rd.compute_list_set_push_constant(compute_list, push_constants, 16)  # 4 floats (4 bytes each)
+	rd.compute_list_set_push_constant(compute_list, push_constants, 48)  # 4 floats (4 bytes each)
 	rd.compute_list_dispatch(compute_list, AgentCount / 256. + 1, 1, 1)
 	rd.compute_list_end()
 
